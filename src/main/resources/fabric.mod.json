@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "mapbot",
+  "version": "${version}",
+  "name": "MapBot",
+  "description": "Client-side map art placement bot for Minecraft 1.21.4.",
+  "authors": [
+    "Smelted"
+  ],
+  "contact": {},
+  "license": "MIT",
+  "icon": "assets/mapbot/icon.png",
+  "environment": "client",
+
+  "entrypoints": {
+    "main": [
+      "com.smelted.MapBot"
+    ],
+    "client": [
+      "com.smelted.client.MapBotClient"
+    ]
+  },
+
+  "mixins": [
+    "mapbot.mixins.json"
+  ],
+
+  "depends": {
+    "fabricloader": ">=0.16.10",
+    "minecraft": "~1.21.4",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
