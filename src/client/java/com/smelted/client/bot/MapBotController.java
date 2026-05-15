@@ -12,17 +12,25 @@ public class MapBotController {
     private static PlacementTarget currentTarget;
     private static int cooldownTicks = 0;
     private static final int ACTION_COOLDOWN = 10;
+    private static int wanderTicks = 0;
+    private static double lastX = 0;
+    private static double lastZ = 0;
+    private static int stuckTicks = 0;
 
     public static void start() {
 
         UsedPlacementTracker.clear();
 
         running = true;
-        state = MapBotState.SCANNING;
+        state = MapBotState.WANDERING;
         status = "Scanning";
     }
 
     public static void stop() {
+        Minecraft mc = Minecraft.getInstance();
+
+        MovementHelper.stopMovement(mc);
+
         running = false;
         state = MapBotState.STOPPED;
         status = "Stopped";
@@ -59,6 +67,7 @@ public class MapBotController {
                 if (target.isPresent()) {
 
                     currentTarget = target.get();
+                    MovementHelper.stopMovement(mc);
 
                     status = "Target found";
 
@@ -66,6 +75,7 @@ public class MapBotController {
 
                 } else {
                     status = "No valid nearby wall found";
+                    state = MapBotState.WANDERING;
                 }
             }
 
@@ -106,6 +116,43 @@ public class MapBotController {
 
             }
 
+            case WANDERING -> {
+
+                status = "Wandering... Used: " + UsedPlacementTracker.size();
+
+                MovementHelper.walkForward(mc);
+
+                wanderTicks++;
+
+                if (wanderTicks % 20 == 0) {
+                    double dx = mc.player.getX() - lastX;
+                    double dz = mc.player.getZ() - lastZ;
+                    double moved = Math.sqrt(dx * dx + dz * dz);
+
+                    if (moved < 0.2) {
+                        stuckTicks++;
+                    } else {
+                        stuckTicks = 0;
+                    }
+
+                    lastX = mc.player.getX();
+                    lastZ = mc.player.getZ();
+
+                    if (stuckTicks >= 2) {
+                        MovementHelper.randomTurn(mc);
+                        stuckTicks = 0;
+                        status = "Stuck, turning";
+                    }
+                }
+
+                if (wanderTicks % 40 == 0) {
+                    state = MapBotState.SCANNING;
+                }
+                if (wanderTicks % 80 == 0) {
+                    MovementHelper.randomTurn(mc);
+                }
+            }
+
             case INSERTING_MAP -> {
 
                 boolean selected =
@@ -126,7 +173,7 @@ public class MapBotController {
 
                 if (frame == null) {
                     status = "Could not find item frame";
-                    state = MapBotState.SCANNING;
+                    state = MapBotState.WANDERING;
                     return;
                 }
 
@@ -141,9 +188,12 @@ public class MapBotController {
                         currentTarget.blockPos().relative(currentTarget.face())
                 );
 
+                MovementHelper.randomTurn(mc);
+                wanderTicks = 0;
+
                 cooldownTicks = ACTION_COOLDOWN;
 
-                state = MapBotState.SCANNING;
+                state = MapBotState.WANDERING;
             }
         }
     }

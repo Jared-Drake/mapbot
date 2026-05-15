@@ -25,4 +25,7 @@ public class UsedPlacementTracker {
     public static int size() {
         return USED_POSITIONS.size();
     }
+    public static Set<BlockPos> getUsedPositions() {
+        return USED_POSITIONS;
+    }
 }

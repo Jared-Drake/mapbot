@@ -45,6 +45,10 @@ public class PlacementScanner {
                             continue;
                         }
 
+                        if (tooCloseToUsed(frontPos)) {
+                            continue;
+                        }
+
                         return Optional.of(new PlacementTarget(blockPos, face));
                     }
                 }
@@ -52,5 +56,15 @@ public class PlacementScanner {
         }
 
         return Optional.empty();
+    }
+
+    private static boolean tooCloseToUsed(BlockPos pos) {
+        for (BlockPos used : UsedPlacementTracker.getUsedPositions()) {
+            if (used.distSqr(pos) < 4) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
