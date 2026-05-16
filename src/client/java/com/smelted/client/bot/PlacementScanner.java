@@ -6,6 +6,9 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.Optional;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 
 public class PlacementScanner {
 
@@ -29,6 +32,22 @@ public class PlacementScanner {
 
                     for (Direction face : Direction.Plane.HORIZONTAL) {
                         BlockPos frontPos = blockPos.relative(face);
+
+                        if (!mc.level.getBlockState(frontPos).isAir()) continue;
+
+                        Vec3 eyePos = mc.player.getEyePosition();
+                        Vec3 hitPos = Vec3.atCenterOf(blockPos).relative(face, 0.5);
+
+                        BlockHitResult ray = mc.level.clip(new ClipContext(
+                                eyePos,
+                                hitPos,
+                                ClipContext.Block.COLLIDER,
+                                ClipContext.Fluid.NONE,
+                                mc.player
+                        ));
+
+                        if (!ray.getBlockPos().equals(blockPos)) continue;
+                        if (ray.getDirection() != face) continue;
                         BlockState frontState = mc.level.getBlockState(frontPos);
 
                         if (!frontState.isAir()) continue;

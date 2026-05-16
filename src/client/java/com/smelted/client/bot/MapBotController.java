@@ -4,6 +4,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.entity.decoration.ItemFrame;
+import net.minecraft.world.phys.Vec3;
 
 public class MapBotController {
 
@@ -19,7 +20,6 @@ public class MapBotController {
     private static int step = 1;
     private static int cooldownTicks = 0;
     private static int insertAttempts = 0;
-    private static int aimTicks = 0;
 
     private static final int STEP_DISTANCE = 20;
 
@@ -81,7 +81,7 @@ public class MapBotController {
 
                 status = "Pathing... " + Math.round(Math.sqrt(distance)) + " blocks away";
 
-                if (distance <= 25) {
+                if (distance <= 4) {
                     BaritoneHelper.stop();
 
                     status = "Close enough, placing";
@@ -118,18 +118,10 @@ public class MapBotController {
                 status = "Placed frame, testing map insert";
                 insertAttempts = 0;
                 cooldownTicks = 40;
-                state = MapBotState.INSERTING_MAP_TEST;
+                state = MapBotState.WAITING_FOR_FRAME;
             }
 
-            case INSERTING_MAP_TEST -> {
-                boolean selected = InteractionHelper.selectFilledMap(mc);
-
-                if (!selected) {
-                    status = "No filled maps in hotbar";
-                    state = MapBotState.ERROR;
-                    return;
-                }
-
+            case WAITING_FOR_FRAME -> {
                 ItemFrame frame = InteractionHelper.findNearbyFrame(
                         mc,
                         lastWallBlock,
@@ -143,41 +135,139 @@ public class MapBotController {
                     return;
                 }
 
-                RotationHelper.lookAt(mc, frame.blockPosition());
+                boolean selected = InteractionHelper.selectFilledMap(mc);
 
-                if (!frame.getItem().isEmpty()) {
-                    status = "SUCCESS: map is in frame";
-                    running = false;
-                    state = MapBotState.STOPPED;
+                if (!selected) {
+                    status = "No filled maps in hotbar";
+                    state = MapBotState.ERROR;
                     return;
                 }
 
-                RotationHelper.lookAt(mc, frame.blockPosition());
+                RotationHelper.lookAtVec(mc, frame.getBoundingBox().getCenter());
 
-                aimTicks++;
-
-                if (aimTicks < 5) {
-                    status = "Aiming at frame... " + aimTicks;
-                    cooldownTicks = 1;
-                    return;
-                }
-
-                boolean clicked = InteractionHelper.interactWithFrame(mc, frame);
-                insertAttempts++;
-                aimTicks = 0;
-
-                if (clicked) {
-                    status = "Clicked frame attempt " + insertAttempts;
-                } else {
-                    status = "Crosshair not on frame " + insertAttempts;
-                }
-
-                cooldownTicks = 10;
-
-                // Test mode: do NOT move on. Stay here so we can observe behavior.
+                status = "Map selected, waiting before insert";
+                cooldownTicks = 12;
+                state = MapBotState.WAITING_TO_INSERT_MAP;
             }
 
-            default -> {
+            case MOVING_CLOSER_TO_FRAME -> {
+                ItemFrame frame = InteractionHelper.findNearbyFrame(
+                        mc,
+                        lastWallBlock,
+                        lastFace
+                );
+
+                if (frame == null) {
+                    status = "Frame missing while moving closer";
+                    cooldownTicks = 10;
+                    state = MapBotState.WAITING_FOR_FRAME;
+                    return;
+                }
+
+                Vec3 frameCenter = frame.getBoundingBox().getCenter();
+
+                double frameDistance = mc.player.getEyePosition().distanceTo(frameCenter);
+
+                if (frameDistance <= 2.5) {
+                    BaritoneHelper.stop();
+
+                    status = "Close enough to insert map";
+                    cooldownTicks = 10;
+                    state = MapBotState.WAITING_TO_INSERT_MAP;
+                    return;
+                }
+
+                BlockPos closerPos = frame.blockPosition().relative(lastFace, 1);
+
+                status = "Moving closer to frame: " + String.format("%.2f", frameDistance);
+
+                BaritoneHelper.goTo(
+                        closerPos.getX(),
+                        closerPos.getZ()
+                );
+
+                cooldownTicks = 20;
+            }
+
+            case WAITING_TO_INSERT_MAP -> {
+                ItemFrame frame = InteractionHelper.findNearbyFrame(
+                        mc,
+                        lastWallBlock,
+                        lastFace
+                );
+
+                if (frame == null) {
+                    status = "Frame disappeared, retrying";
+                    cooldownTicks = 10;
+                    state = MapBotState.WAITING_FOR_FRAME;
+                    return;
+                }
+
+                RotationHelper.lookAtVec(mc, frame.getBoundingBox().getCenter());
+
+                status = "Aiming at frame before insert";
+                cooldownTicks = 8;
+                state = MapBotState.INSERTING_MAP_TEST;
+            }
+
+            case INSERTING_MAP_TEST -> {
+                ItemFrame frame = InteractionHelper.findNearbyFrame(
+                        mc,
+                        lastWallBlock,
+                        lastFace
+                );
+
+                if (frame == null) {
+                    insertAttempts++;
+                    status = "Waiting for frame entity... " + insertAttempts;
+                    cooldownTicks = 10;
+                    state = MapBotState.WAITING_FOR_FRAME;
+                    return;
+                }
+
+                if (!frame.getItem().isEmpty()) {
+                    status = "SUCCESS: map inserted, moving to next point";
+
+                    insertAttempts = 0;
+                    cooldownTicks = 20;
+                    state = MapBotState.NEXT_POINT;
+                    return;
+                }
+
+                double frameDistance = mc.player.getEyePosition()
+                        .distanceTo(frame.getBoundingBox().getCenter());
+
+                if (frameDistance > 3.0) {
+                    status = "Too far from frame: " + String.format("%.2f", frameDistance);
+                    cooldownTicks = 10;
+                    state = MapBotState.MOVING_CLOSER_TO_FRAME;
+                    return;
+                }
+
+                RotationHelper.lookAtVec(mc, frame.getBoundingBox().getCenter());
+
+                if (!InteractionHelper.isCrosshairOnFrame(mc, frame)) {
+                    status = "Crosshair still not on frame";
+                    cooldownTicks = 5;
+                    state = MapBotState.WAITING_TO_INSERT_MAP;
+                    return;
+                }
+
+                InteractionHelper.pressUseKey(mc);
+                insertAttempts++;
+
+                status = "Pressed real use key attempt " + insertAttempts;
+
+                cooldownTicks = 2;
+                state = MapBotState.RELEASING_USE_KEY;
+            }
+
+            case RELEASING_USE_KEY -> {
+                InteractionHelper.releaseUseKey(mc);
+
+                status = "Released use key, checking frame";
+                cooldownTicks = 20;
+                state = MapBotState.WAITING_TO_INSERT_MAP;
             }
         }
     }

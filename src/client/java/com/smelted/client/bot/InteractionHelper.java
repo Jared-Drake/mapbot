@@ -4,23 +4,24 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.phys.BlockHitResult;
-import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.entity.decoration.ItemFrame;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.phys.Vec3;
 
 public class InteractionHelper {
 
     public static boolean selectItemFrame(Minecraft mc) {
-
-        if (mc.player == null) return false;
+        if (mc.player == null || mc.gameMode == null) return false;
 
         for (int i = 0; i < 9; i++) {
-
             if (mc.player.getInventory().getItem(i).getItem() == Items.ITEM_FRAME) {
                 mc.player.getInventory().selected = i;
+                mc.player.connection.send(
+                        new net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket(i)
+                );
                 return true;
             }
         }
@@ -29,13 +30,14 @@ public class InteractionHelper {
     }
 
     public static boolean selectFilledMap(Minecraft mc) {
-
-        if (mc.player == null) return false;
+        if (mc.player == null || mc.gameMode == null) return false;
 
         for (int i = 0; i < 9; i++) {
-
             if (mc.player.getInventory().getItem(i).getItem() == Items.FILLED_MAP) {
                 mc.player.getInventory().selected = i;
+                mc.player.connection.send(
+                        new net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket(i)
+                );
                 return true;
             }
         }
@@ -43,11 +45,7 @@ public class InteractionHelper {
         return false;
     }
 
-    public static ItemFrame findNearbyFrame(
-            Minecraft mc,
-            BlockPos blockPos,
-            Direction face
-    ) {
+    public static ItemFrame findNearbyFrame(Minecraft mc, BlockPos blockPos, Direction face) {
         if (mc.level == null) return null;
 
         BlockPos frameSpace = blockPos.relative(face);
@@ -70,34 +68,44 @@ public class InteractionHelper {
         return best;
     }
 
-    public static boolean interactWithFrame(
-            Minecraft mc,
-            ItemFrame frame
-    ) {
-        if (mc.gameMode == null || mc.player == null || mc.hitResult == null) {
+    public static boolean interactWithFrame(Minecraft mc, ItemFrame frame) {
+        if (mc.gameMode == null || mc.player == null || frame == null) {
             return false;
         }
 
-        if (!(mc.hitResult instanceof EntityHitResult entityHitResult)) {
+        if (!mc.player.getMainHandItem().is(Items.FILLED_MAP)) {
             return false;
         }
 
-        if (entityHitResult.getEntity() != frame) {
-            return false;
-        }
+        mc.gameMode.interact(
+                mc.player,
+                frame,
+                InteractionHand.MAIN_HAND
+        );
 
-        mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
         mc.player.swing(InteractionHand.MAIN_HAND);
-
         return true;
     }
 
-    public static void placeItemFrame(
-            Minecraft mc,
-            BlockPos blockPos,
-            Direction face
-    ) {
+    public static void pressUseKey(Minecraft mc) {
+        if (mc.options == null) return;
+        mc.options.keyUse.setDown(true);
+    }
 
+    public static void releaseUseKey(Minecraft mc) {
+        if (mc.options == null) return;
+        mc.options.keyUse.setDown(false);
+    }
+
+    public static boolean isCrosshairOnFrame(Minecraft mc, ItemFrame frame) {
+        if (mc.hitResult instanceof EntityHitResult entityHitResult) {
+            return entityHitResult.getEntity() == frame;
+        }
+
+        return false;
+    }
+
+    public static void placeItemFrame(Minecraft mc, BlockPos blockPos, Direction face) {
         if (mc.gameMode == null || mc.player == null) return;
 
         Vec3 hitVec = Vec3.atCenterOf(blockPos);
@@ -114,5 +122,8 @@ public class InteractionHelper {
                 InteractionHand.MAIN_HAND,
                 hitResult
         );
+
+        mc.player.swing(InteractionHand.MAIN_HAND);
     }
 }
+
