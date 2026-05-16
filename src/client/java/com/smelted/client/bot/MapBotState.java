@@ -2,10 +2,10 @@ package com.smelted.client.bot;
 
 public enum MapBotState {
     STOPPED,
-    WANDERING,
-    SCANNING,
-    LOOKING,
+    PATHING,
+    ARRIVED,
     PLACING_FRAME,
     INSERTING_MAP,
+    NEXT_POINT,
     ERROR
 }

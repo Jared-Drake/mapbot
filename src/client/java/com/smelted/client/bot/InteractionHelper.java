@@ -11,6 +11,7 @@ import net.minecraft.world.entity.decoration.ItemFrame;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.EntityHitResult;
 
 public class InteractionHelper {
 
@@ -52,30 +53,43 @@ public class InteractionHelper {
         if (mc.level == null) return null;
 
         BlockPos frameSpace = blockPos.relative(face);
+        AABB searchBox = new AABB(frameSpace).inflate(0.75);
 
-        AABB searchBox = new AABB(frameSpace).inflate(1.0);
+        ItemFrame best = null;
+        double bestDistance = Double.MAX_VALUE;
+
+        Vec3 expected = Vec3.atCenterOf(frameSpace);
 
         for (ItemFrame frame : mc.level.getEntitiesOfClass(ItemFrame.class, searchBox)) {
-            if (frame.getDirection() == face) {
-                return frame;
+            double distance = frame.position().distanceToSqr(expected);
+
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = frame;
             }
         }
 
-        return null;
+        return best;
     }
 
     public static void interactWithFrame(
             Minecraft mc,
             ItemFrame frame
     ) {
-
         if (mc.gameMode == null || mc.player == null) return;
 
-        mc.gameMode.interact(
+        Vec3 hitVec = frame.position().add(0, frame.getBbHeight() / 2.0, 0);
+
+        EntityHitResult hitResult = new EntityHitResult(frame, hitVec);
+
+        mc.gameMode.interactAt(
                 mc.player,
                 frame,
+                hitResult,
                 InteractionHand.MAIN_HAND
         );
+
+        mc.player.swing(InteractionHand.MAIN_HAND);
     }
 
     public static void placeItemFrame(

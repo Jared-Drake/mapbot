@@ -1,35 +1,42 @@
 package com.smelted.client.bot;
 
 import net.minecraft.client.Minecraft;
-import java.util.Optional;
-import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 
 public class MapBotController {
 
     private static boolean running = false;
     private static MapBotState state = MapBotState.STOPPED;
     private static String status = "Stopped";
-    private static PlacementTarget currentTarget;
+
+    private static BlockPos origin;
+    private static BlockPos currentWaypoint;
+    private static int step = 1;
+
     private static int cooldownTicks = 0;
-    private static final int ACTION_COOLDOWN = 10;
-    private static int wanderTicks = 0;
-    private static double lastX = 0;
-    private static double lastZ = 0;
-    private static int stuckTicks = 0;
+
+    private static final int STEP_DISTANCE = 20;
 
     public static void start() {
+        Minecraft mc = Minecraft.getInstance();
 
-        UsedPlacementTracker.clear();
+        if (mc.player == null || mc.level == null) {
+            status = "Player or world missing";
+            state = MapBotState.ERROR;
+            return;
+        }
 
         running = true;
-        state = MapBotState.WANDERING;
-        status = "Scanning";
+        origin = mc.player.blockPosition();
+        step = 1;
+
+        status = "Started frame placement test";
+        state = MapBotState.NEXT_POINT;
     }
 
     public static void stop() {
-        Minecraft mc = Minecraft.getInstance();
-
-        MovementHelper.stopMovement(mc);
+        BaritoneHelper.stop();
 
         running = false;
         state = MapBotState.STOPPED;
@@ -37,7 +44,6 @@ public class MapBotController {
     }
 
     public static void tick(Minecraft mc) {
-
         if (!running || mc.player == null || mc.level == null) return;
 
         if (cooldownTicks > 0) {
@@ -47,153 +53,66 @@ public class MapBotController {
 
         switch (state) {
 
-            case SCANNING -> {
+            case NEXT_POINT -> {
+                currentWaypoint = origin.offset(step * STEP_DISTANCE, 0, 0);
+                step++;
 
-                if (!InventoryHelper.hasItemFrames(mc)) {
-                    status = "Out of item frames";
-                    state = MapBotState.ERROR;
-                    return;
-                }
+                status = "Pathing to " + currentWaypoint.toShortString();
 
-                if (!InventoryHelper.hasFilledMaps(mc)) {
-                    status = "Out of filled maps";
-                    state = MapBotState.ERROR;
-                    return;
-                }
-
-                Optional<PlacementTarget> target =
-                        PlacementScanner.findNearbyTarget(mc);
-
-                if (target.isPresent()) {
-
-                    currentTarget = target.get();
-                    MovementHelper.stopMovement(mc);
-
-                    status = "Target found";
-
-                    state = MapBotState.LOOKING;
-
-                } else {
-                    status = "No valid nearby wall found";
-                    state = MapBotState.WANDERING;
-                }
-            }
-
-            case LOOKING -> {
-
-                RotationHelper.lookAt(
-                        mc,
-                        currentTarget.blockPos()
+                BaritoneHelper.goTo(
+                        currentWaypoint.getX(),
+                        currentWaypoint.getZ()
                 );
 
-                status = "Looking at target";
+                cooldownTicks = 20;
+                state = MapBotState.PATHING;
+            }
 
-                state = MapBotState.PLACING_FRAME;
+            case PATHING -> {
+                double dx = mc.player.getX() - currentWaypoint.getX();
+                double dz = mc.player.getZ() - currentWaypoint.getZ();
+
+                double distance = (dx * dx) + (dz * dz);
+
+                status = "Pathing... " + Math.round(Math.sqrt(distance)) + " blocks away";
+
+                if (distance <= 25) {
+                    BaritoneHelper.stop();
+
+                    status = "Close enough, placing";
+                    cooldownTicks = 30;
+                    state = MapBotState.PLACING_FRAME;
+                }
             }
 
             case PLACING_FRAME -> {
-
-                boolean selected =
-                        InteractionHelper.selectItemFrame(mc);
+                boolean selected = InteractionHelper.selectItemFrame(mc);
 
                 if (!selected) {
-                    status = "No item frame in hotbar";
+                    status = "No item frames in hotbar";
                     state = MapBotState.ERROR;
                     return;
                 }
 
-                InteractionHelper.placeItemFrame(
-                        mc,
-                        currentTarget.blockPos(),
-                        currentTarget.face()
-                );
+                var target = PlacementScanner.findNearbyTarget(mc);
 
-                status = "Placed item frame";
-
-                cooldownTicks = ACTION_COOLDOWN;
-
-                state = MapBotState.INSERTING_MAP;
-
-            }
-
-            case WANDERING -> {
-
-                status = "Wandering... Used: " + UsedPlacementTracker.size();
-
-                MovementHelper.walkForward(mc);
-
-                wanderTicks++;
-
-                if (wanderTicks % 20 == 0) {
-                    double dx = mc.player.getX() - lastX;
-                    double dz = mc.player.getZ() - lastZ;
-                    double moved = Math.sqrt(dx * dx + dz * dz);
-
-                    if (moved < 0.2) {
-                        stuckTicks++;
-                    } else {
-                        stuckTicks = 0;
-                    }
-
-                    lastX = mc.player.getX();
-                    lastZ = mc.player.getZ();
-
-                    if (stuckTicks >= 2) {
-                        MovementHelper.randomTurn(mc);
-                        stuckTicks = 0;
-                        status = "Stuck, turning";
-                    }
-                }
-
-                if (wanderTicks % 40 == 0) {
-                    state = MapBotState.SCANNING;
-                }
-                if (wanderTicks % 80 == 0) {
-                    MovementHelper.randomTurn(mc);
-                }
-            }
-
-            case INSERTING_MAP -> {
-
-                boolean selected =
-                        InteractionHelper.selectFilledMap(mc);
-
-                if (!selected) {
-                    status = "No filled map in hotbar";
-                    state = MapBotState.ERROR;
+                if (target.isEmpty()) {
+                    status = "No wall found, moving on";
+                    cooldownTicks = 20;
+                    state = MapBotState.NEXT_POINT;
                     return;
                 }
 
-                var frame =
-                        InteractionHelper.findNearbyFrame(
-                                mc,
-                                currentTarget.blockPos(),
-                                currentTarget.face()
-                        );
+                BlockPos wallBlock = target.get().blockPos();
+                Direction face = target.get().face();
 
-                if (frame == null) {
-                    status = "Could not find item frame";
-                    state = MapBotState.WANDERING;
-                    return;
-                }
+                RotationHelper.lookAt(mc, wallBlock);
 
-                InteractionHelper.interactWithFrame(
-                        mc,
-                        frame
-                );
+                InteractionHelper.placeItemFrame(mc, wallBlock, face);
 
-                status = "Inserted map";
-
-                UsedPlacementTracker.markUsed(
-                        currentTarget.blockPos().relative(currentTarget.face())
-                );
-
-                MovementHelper.randomTurn(mc);
-                wanderTicks = 0;
-
-                cooldownTicks = ACTION_COOLDOWN;
-
-                state = MapBotState.WANDERING;
+                status = "Placed frame, moving on";
+                cooldownTicks = 30;
+                state = MapBotState.NEXT_POINT;
             }
         }
     }
