@@ -150,45 +150,6 @@ public class MapBotController {
                 state = MapBotState.WAITING_TO_INSERT_MAP;
             }
 
-            case MOVING_CLOSER_TO_FRAME -> {
-                ItemFrame frame = InteractionHelper.findNearbyFrame(
-                        mc,
-                        lastWallBlock,
-                        lastFace
-                );
-
-                if (frame == null) {
-                    status = "Frame missing while moving closer";
-                    cooldownTicks = 10;
-                    state = MapBotState.WAITING_FOR_FRAME;
-                    return;
-                }
-
-                Vec3 frameCenter = frame.getBoundingBox().getCenter();
-
-                double frameDistance = mc.player.getEyePosition().distanceTo(frameCenter);
-
-                if (frameDistance <= 2.5) {
-                    BaritoneHelper.stop();
-
-                    status = "Close enough to insert map";
-                    cooldownTicks = 10;
-                    state = MapBotState.WAITING_TO_INSERT_MAP;
-                    return;
-                }
-
-                BlockPos closerPos = frame.blockPosition().relative(lastFace, 1);
-
-                status = "Moving closer to frame: " + String.format("%.2f", frameDistance);
-
-                BaritoneHelper.goTo(
-                        closerPos.getX(),
-                        closerPos.getZ()
-                );
-
-                cooldownTicks = 20;
-            }
-
             case WAITING_TO_INSERT_MAP -> {
                 ItemFrame frame = InteractionHelper.findNearbyFrame(
                         mc,

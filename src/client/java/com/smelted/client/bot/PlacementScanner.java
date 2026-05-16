@@ -32,6 +32,11 @@ public class PlacementScanner {
 
                     for (Direction face : Direction.Plane.HORIZONTAL) {
                         BlockPos frontPos = blockPos.relative(face);
+                        Vec3 frameCenter = Vec3.atCenterOf(frontPos);
+
+                        double distanceToFrame = mc.player.getEyePosition().distanceTo(frameCenter);
+
+                        if (distanceToFrame > 2.75) continue;
 
                         if (!mc.level.getBlockState(frontPos).isAir()) continue;
 
