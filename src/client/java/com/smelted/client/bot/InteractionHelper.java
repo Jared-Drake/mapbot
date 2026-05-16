@@ -8,8 +8,6 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.entity.decoration.ItemFrame;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
 
@@ -72,24 +70,26 @@ public class InteractionHelper {
         return best;
     }
 
-    public static void interactWithFrame(
+    public static boolean interactWithFrame(
             Minecraft mc,
             ItemFrame frame
     ) {
-        if (mc.gameMode == null || mc.player == null) return;
+        if (mc.gameMode == null || mc.player == null || mc.hitResult == null) {
+            return false;
+        }
 
-        Vec3 hitVec = frame.position().add(0, frame.getBbHeight() / 2.0, 0);
+        if (!(mc.hitResult instanceof EntityHitResult entityHitResult)) {
+            return false;
+        }
 
-        EntityHitResult hitResult = new EntityHitResult(frame, hitVec);
+        if (entityHitResult.getEntity() != frame) {
+            return false;
+        }
 
-        mc.gameMode.interactAt(
-                mc.player,
-                frame,
-                hitResult,
-                InteractionHand.MAIN_HAND
-        );
-
+        mc.gameMode.useItem(mc.player, InteractionHand.MAIN_HAND);
         mc.player.swing(InteractionHand.MAIN_HAND);
+
+        return true;
     }
 
     public static void placeItemFrame(
