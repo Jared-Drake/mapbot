@@ -3,6 +3,7 @@ package com.smelted.client.bot;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.decoration.ItemFrame;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
 public class MapBotController {
@@ -27,7 +28,6 @@ public class MapBotController {
     private static int pathingStuckTicks = 0;
 
     private static final int STEP_DISTANCE = 20;
-    private static final int MIN_WAYPOINT_Y = 64;
     private static final int MAX_INSERT_ATTEMPTS = 12;
     private static final int COOLDOWN_AFTER_GOTO = 12;
     private static final int COOLDOWN_AFTER_PATH_REACHED = 12;
@@ -39,8 +39,11 @@ public class MapBotController {
     private static final int COOLDOWN_USE_RELEASE = 1;
     private static final int COOLDOWN_AFTER_RELEASE = 8;
     private static final int COOLDOWN_SKIP = 10;
+    private static final int MAX_TARGET_ATTEMPTS_PER_WAYPOINT = 3;
     private static final int STUCK_TIMEOUT_TICKS = 100;
     private static final double STUCK_MOVE_THRESHOLD = 0.3;
+
+    private static int targetAttemptsAtWaypoint = 0;
 
     public static void start() {
         Minecraft mc = Minecraft.getInstance();
@@ -62,6 +65,7 @@ public class MapBotController {
         currentWaypoint = null;
         lastPlacementTarget = null;
         resetPathingStuckTimer();
+        targetAttemptsAtWaypoint = 0;
 
         status = "Started map insert test";
         state = MapBotState.NEXT_POINT;
@@ -86,12 +90,11 @@ public class MapBotController {
         switch (state) {
 
             case NEXT_POINT -> {
-                int waypointY = Math.max(origin.getY(), MIN_WAYPOINT_Y);
-                currentWaypoint = new BlockPos(
-                        origin.getX() + (step * STEP_DISTANCE),
-                        waypointY,
-                        origin.getZ()
-                );
+                int waypointX = origin.getX() + (step * STEP_DISTANCE);
+                int waypointZ = origin.getZ();
+                int waypointY = resolveSurfaceWaypointY(mc, waypointX, waypointZ);
+                currentWaypoint = new BlockPos(waypointX, waypointY, waypointZ);
+                targetAttemptsAtWaypoint = 0;
                 step++;
                 resetPathingStuckTimer();
 
@@ -153,10 +156,10 @@ public class MapBotController {
                     return;
                 }
 
-                var target = PlacementScanner.findNearbyTarget(mc);
+                var target = PlacementScanner.findNearbyTarget(mc, currentWaypoint);
 
                 if (target.isEmpty()) {
-                    status = "No target, moving on | " + PlacementScanner.getLastScanDebugSummary();
+                    status = withStats("No target near waypoint, moving on | " + PlacementScanner.getLastScanDebugSummary());
                     skippedCount++;
                     cooldownTicks = COOLDOWN_SKIP;
                     state = MapBotState.NEXT_POINT;
@@ -177,7 +180,8 @@ public class MapBotController {
                         lastPlacementTarget.face()
                 );
 
-                status = "Placed frame, testing map insert";
+                targetAttemptsAtWaypoint++;
+                status = withStats("Placed frame, testing map insert (target " + targetAttemptsAtWaypoint + "/" + MAX_TARGET_ATTEMPTS_PER_WAYPOINT + ")");
                 insertAttempts = 0;
                 frameWaitAttempts = 0;
                 cooldownTicks = COOLDOWN_AFTER_PLACE;
@@ -201,8 +205,11 @@ public class MapBotController {
                     frameWaitAttempts++;
                     if (frameWaitAttempts >= 8) {
                         UsedPlacementTracker.markFailed(lastPlacementTarget.framePos());
+                        if (tryAnotherTargetAtWaypoint("Frame failed to appear")) {
+                            return;
+                        }
                         skippedCount++;
-                        status = withStats("Frame failed to appear, skipping target");
+                        status = withStats("Frame failed to appear, no more targets at waypoint");
                         cooldownTicks = COOLDOWN_SKIP;
                         state = MapBotState.NEXT_POINT;
                         return;
@@ -271,8 +278,11 @@ public class MapBotController {
                     frameWaitAttempts++;
                     if (frameWaitAttempts >= 8) {
                         UsedPlacementTracker.markFailed(lastPlacementTarget.framePos());
+                        if (tryAnotherTargetAtWaypoint("Frame disappeared too long")) {
+                            return;
+                        }
                         skippedCount++;
-                        status = withStats("Frame disappeared too long, skipping target");
+                        status = withStats("Frame disappeared too long, no more targets at waypoint");
                         cooldownTicks = COOLDOWN_SKIP;
                         state = MapBotState.NEXT_POINT;
                         return;
@@ -297,8 +307,11 @@ public class MapBotController {
 
                 if (insertAttempts >= MAX_INSERT_ATTEMPTS) {
                     UsedPlacementTracker.markFailed(lastPlacementTarget.framePos());
+                    if (tryAnotherTargetAtWaypoint("Insert failed too many times")) {
+                        return;
+                    }
                     skippedCount++;
-                    status = withStats("Insert failed too many times; skipping target");
+                    status = withStats("Insert failed too many times; no more targets at waypoint");
                     cooldownTicks = COOLDOWN_SKIP;
                     state = MapBotState.NEXT_POINT;
                     return;
@@ -356,6 +369,47 @@ public class MapBotController {
     private static void resetPathingStuckTimer() {
         pathingStartPosition = null;
         pathingStuckTicks = 0;
+    }
+
+
+    private static int resolveSurfaceWaypointY(Minecraft mc, int x, int z) {
+        if (mc.level == null || mc.player == null) {
+            return origin != null ? origin.getY() : 0;
+        }
+
+        BlockPos columnPos = new BlockPos(x, mc.player.blockPosition().getY(), z);
+        if (!mc.level.hasChunkAt(columnPos)) {
+            return mc.player.blockPosition().getY();
+        }
+
+        int motionBlockingY = mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+        if (motionBlockingY > mc.level.getMinY()) {
+            return motionBlockingY;
+        }
+
+        int worldSurfaceY = mc.level.getHeight(Heightmap.Types.WORLD_SURFACE, x, z);
+        if (worldSurfaceY > mc.level.getMinY()) {
+            return worldSurfaceY;
+        }
+
+        return mc.player.blockPosition().getY();
+    }
+
+    private static boolean tryAnotherTargetAtWaypoint(String reason) {
+        if (targetAttemptsAtWaypoint >= MAX_TARGET_ATTEMPTS_PER_WAYPOINT) {
+            return false;
+        }
+
+        lastPlacementTarget = null;
+        insertAttempts = 0;
+        frameWaitAttempts = 0;
+        status = withStats(reason + ", retrying nearby target "
+                + (targetAttemptsAtWaypoint + 1)
+                + "/"
+                + MAX_TARGET_ATTEMPTS_PER_WAYPOINT);
+        cooldownTicks = COOLDOWN_SKIP;
+        state = MapBotState.PLACING_FRAME;
+        return true;
     }
 
     private static String withStats(String message) {
