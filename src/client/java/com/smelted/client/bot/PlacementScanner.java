@@ -3,7 +3,7 @@ package com.smelted.client.bot;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.world.level.block.state.BlockBehaviour;
+import net.minecraft.world.level.block.SupportType;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.Optional;
@@ -158,7 +158,7 @@ public class PlacementScanner {
         if (!supportState.getFluidState().isEmpty()) return false;
         if (supportState.canBeReplaced()) return false;
         if (!supportState.getCollisionShape(mc.level, blockPos).isEmpty()) {
-            return supportState.isFaceSturdy(mc.level, blockPos, face, BlockBehaviour.BlockStateBase.SupportType.FULL);
+            return supportState.isFaceSturdy(mc.level, blockPos, face, net.minecraft.world.level.block.SupportType.FULL);
         }
         return false;
     }
