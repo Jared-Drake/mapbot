@@ -21,8 +21,13 @@ public class MapBotController {
     private static int frameWaitAttempts = 0;
     private static int successCount = 0;
     private static int skippedCount = 0;
+    private static int stuckSkips = 0;
+
+    private static Vec3 pathingStartPosition;
+    private static int pathingStuckTicks = 0;
 
     private static final int STEP_DISTANCE = 20;
+    private static final int MIN_WAYPOINT_Y = 64;
     private static final int MAX_INSERT_ATTEMPTS = 12;
     private static final int COOLDOWN_AFTER_GOTO = 12;
     private static final int COOLDOWN_AFTER_PATH_REACHED = 12;
@@ -34,6 +39,8 @@ public class MapBotController {
     private static final int COOLDOWN_USE_RELEASE = 1;
     private static final int COOLDOWN_AFTER_RELEASE = 8;
     private static final int COOLDOWN_SKIP = 10;
+    private static final int STUCK_TIMEOUT_TICKS = 100;
+    private static final double STUCK_MOVE_THRESHOLD = 0.3;
 
     public static void start() {
         Minecraft mc = Minecraft.getInstance();
@@ -51,6 +58,10 @@ public class MapBotController {
         frameWaitAttempts = 0;
         successCount = 0;
         skippedCount = 0;
+        stuckSkips = 0;
+        currentWaypoint = null;
+        lastPlacementTarget = null;
+        resetPathingStuckTimer();
 
         status = "Started map insert test";
         state = MapBotState.NEXT_POINT;
@@ -75,13 +86,20 @@ public class MapBotController {
         switch (state) {
 
             case NEXT_POINT -> {
-                currentWaypoint = origin.offset(step * STEP_DISTANCE, 0, 0);
+                int waypointY = Math.max(origin.getY(), MIN_WAYPOINT_Y);
+                currentWaypoint = new BlockPos(
+                        origin.getX() + (step * STEP_DISTANCE),
+                        waypointY,
+                        origin.getZ()
+                );
                 step++;
+                resetPathingStuckTimer();
 
                 status = "Pathing to " + currentWaypoint.toShortString();
 
                 BaritoneHelper.goTo(
                         currentWaypoint.getX(),
+                        currentWaypoint.getY(),
                         currentWaypoint.getZ()
                 );
 
@@ -90,14 +108,35 @@ public class MapBotController {
             }
 
             case PATHING -> {
+                if (currentWaypoint == null) {
+                    status = "Waypoint missing, selecting next point";
+                    state = MapBotState.NEXT_POINT;
+                    return;
+                }
+
+                updatePathingStuckTracker(mc);
+
                 double dx = mc.player.getX() - currentWaypoint.getX();
+                double dy = mc.player.getY() - currentWaypoint.getY();
                 double dz = mc.player.getZ() - currentWaypoint.getZ();
-                double distance = (dx * dx) + (dz * dz);
+                double distanceSqr = (dx * dx) + (dy * dy) + (dz * dz);
 
-                status = "Pathing... " + Math.round(Math.sqrt(distance)) + " blocks away";
+                status = "Pathing... " + Math.round(Math.sqrt(distanceSqr)) + " blocks away";
 
-                if (distance <= 4) {
+                if (pathingStuckTicks >= STUCK_TIMEOUT_TICKS) {
                     BaritoneHelper.stop();
+                    skippedCount++;
+                    stuckSkips++;
+                    status = "Baritone stuck, skipping to next point";
+                    cooldownTicks = COOLDOWN_SKIP;
+                    resetPathingStuckTimer();
+                    state = MapBotState.NEXT_POINT;
+                    return;
+                }
+
+                if (distanceSqr <= 4) {
+                    BaritoneHelper.stop();
+                    resetPathingStuckTimer();
 
                     status = "Close enough, placing";
                     cooldownTicks = COOLDOWN_AFTER_PATH_REACHED;
@@ -117,7 +156,7 @@ public class MapBotController {
                 var target = PlacementScanner.findNearbyTarget(mc);
 
                 if (target.isEmpty()) {
-                    status = "No reachable wall/ground target, moving on";
+                    status = "No target, moving on | " + PlacementScanner.getLastScanDebugSummary();
                     skippedCount++;
                     cooldownTicks = COOLDOWN_SKIP;
                     state = MapBotState.NEXT_POINT;
@@ -290,7 +329,33 @@ public class MapBotController {
                 cooldownTicks = COOLDOWN_AFTER_RELEASE;
                 state = MapBotState.WAITING_TO_INSERT_MAP;
             }
+
+            case STOPPED, ERROR -> {
+                // No tick work in passive states.
+            }
         }
+    }
+
+    private static void updatePathingStuckTracker(Minecraft mc) {
+        Vec3 currentPos = mc.player.position();
+        if (pathingStartPosition == null) {
+            pathingStartPosition = currentPos;
+            pathingStuckTicks = 0;
+            return;
+        }
+
+        if (currentPos.distanceTo(pathingStartPosition) >= STUCK_MOVE_THRESHOLD) {
+            pathingStartPosition = currentPos;
+            pathingStuckTicks = 0;
+            return;
+        }
+
+        pathingStuckTicks++;
+    }
+
+    private static void resetPathingStuckTimer() {
+        pathingStartPosition = null;
+        pathingStuckTicks = 0;
     }
 
     private static String withStats(String message) {
@@ -300,18 +365,24 @@ public class MapBotController {
                 + " frameWait=" + frameWaitAttempts
                 + "/" + 8
                 + " success=" + successCount
-                + " skipped=" + skippedCount;
+                + " skipped=" + skippedCount
+                + " stuck=" + stuckSkips;
     }
 
-    public static String getStatus() {
-        return status;
-    }
+    public static String getStatus() { return status; }
+    public static MapBotState getState() { return state; }
+    public static boolean isRunning() { return running; }
+    public static BlockPos getCurrentWaypoint() { return currentWaypoint; }
+    public static int getMapsPlaced() { return successCount; }
+    public static int getFailedTargets() { return skippedCount; }
+    public static int getStuckSkips() { return stuckSkips; }
+    public static int getInsertAttempts() { return insertAttempts; }
 
-    public static MapBotState getState() {
-        return state;
-    }
-
-    public static boolean isRunning() {
-        return running;
+    public static double getDistanceToWaypoint(Minecraft mc) {
+        if (mc == null || mc.player == null || currentWaypoint == null) return -1;
+        double dx = mc.player.getX() - currentWaypoint.getX();
+        double dy = mc.player.getY() - currentWaypoint.getY();
+        double dz = mc.player.getZ() - currentWaypoint.getZ();
+        return Math.sqrt((dx * dx) + (dy * dy) + (dz * dz));
     }
 }
