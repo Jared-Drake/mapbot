@@ -40,9 +40,11 @@ public class MapBotController {
     private static final int COOLDOWN_AFTER_RELEASE = 8;
     private static final int COOLDOWN_SKIP = 10;
     private static final int MAX_TARGET_ATTEMPTS_PER_WAYPOINT = 3;
-    private static final int STUCK_TIMEOUT_TICKS = 200;
+    private static final int STUCK_TIMEOUT_TICKS = 100;
     private static final double STUCK_MOVE_THRESHOLD = 0.3;
-    private static final double WAYPOINT_XZ_REACHED_DISTANCE = 5.0;
+    private static final double WAYPOINT_XZ_REACHED_DISTANCE = 3.0;
+
+    private static int targetAttemptsAtWaypoint = 0;
 
     private static int targetAttemptsAtWaypoint = 0;
 
@@ -92,7 +94,7 @@ public class MapBotController {
 
             case NEXT_POINT -> {
                 int waypointX = origin.getX() + (step * STEP_DISTANCE);
-                int waypointZ = origin.getZ() + (step * STEP_DISTANCE);
+                int waypointZ = origin.getZ();
                 int waypointY = resolveSurfaceWaypointY(mc, waypointX, waypointZ);
                 currentWaypoint = new BlockPos(waypointX, waypointY, waypointZ);
                 targetAttemptsAtWaypoint = 0;
@@ -156,7 +158,7 @@ public class MapBotController {
                     return;
                 }
 
-                var target = PlacementScanner.findNearbyTarget(mc, mc.player.blockPosition());
+                var target = PlacementScanner.findNearbyTarget(mc, currentWaypoint);
 
                 if (target.isEmpty()) {
                     status = withStats("No target near waypoint, moving on | " + PlacementScanner.getLastScanDebugSummary());
