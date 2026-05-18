@@ -42,6 +42,9 @@ public class MapBotController {
     private static final int MAX_TARGET_ATTEMPTS_PER_WAYPOINT = 3;
     private static final int STUCK_TIMEOUT_TICKS = 100;
     private static final double STUCK_MOVE_THRESHOLD = 0.3;
+    private static final double WAYPOINT_XZ_REACHED_DISTANCE = 3.0;
+
+    private static int targetAttemptsAtWaypoint = 0;
 
     private static int targetAttemptsAtWaypoint = 0;
 
@@ -120,11 +123,10 @@ public class MapBotController {
                 updatePathingStuckTracker(mc);
 
                 double dx = mc.player.getX() - currentWaypoint.getX();
-                double dy = mc.player.getY() - currentWaypoint.getY();
                 double dz = mc.player.getZ() - currentWaypoint.getZ();
-                double distanceSqr = (dx * dx) + (dy * dy) + (dz * dz);
+                double horizontalDistance = Math.sqrt((dx * dx) + (dz * dz));
 
-                status = "Pathing... " + Math.round(Math.sqrt(distanceSqr)) + " blocks away";
+                status = "Pathing... " + Math.round(horizontalDistance) + " blocks away (XZ)";
 
                 if (pathingStuckTicks >= STUCK_TIMEOUT_TICKS) {
                     BaritoneHelper.stop();
@@ -137,7 +139,7 @@ public class MapBotController {
                     return;
                 }
 
-                if (distanceSqr <= 4) {
+                if (horizontalDistance <= WAYPOINT_XZ_REACHED_DISTANCE) {
                     BaritoneHelper.stop();
                     resetPathingStuckTimer();
 
@@ -319,6 +321,16 @@ public class MapBotController {
 
                 RotationHelper.lookAtVec(mc, frame.getBoundingBox().getCenter());
 
+                boolean interacted = InteractionHelper.interactWithFrame(mc, frame);
+                insertAttempts++;
+
+                if (interacted) {
+                    status = withStats("Direct frame interact attempt " + insertAttempts);
+                    cooldownTicks = COOLDOWN_AFTER_RELEASE;
+                    state = MapBotState.WAITING_TO_INSERT_MAP;
+                    return;
+                }
+
                 if (!InteractionHelper.isCrosshairOnFrame(mc, frame)) {
                     status = withStats("Crosshair not on frame, re-aiming");
                     cooldownTicks = COOLDOWN_REAIM;
@@ -327,9 +339,8 @@ public class MapBotController {
                 }
 
                 InteractionHelper.pressUseKey(mc);
-                insertAttempts++;
 
-                status = withStats("Pressed use key attempt " + insertAttempts);
+                status = withStats("Pressed use key fallback attempt " + insertAttempts);
 
                 cooldownTicks = COOLDOWN_USE_RELEASE;
                 state = MapBotState.RELEASING_USE_KEY;
