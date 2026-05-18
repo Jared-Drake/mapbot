@@ -14,7 +14,7 @@ public class PlacementScanner {
     private static final int SCAN_RADIUS = 7;
     private static final int VERTICAL_SCAN_MIN = -3;
     private static final int VERTICAL_SCAN_MAX = 3;
-    private static final double MAX_INTERACTION_RANGE = 4.5;
+    private static final double MAX_INTERACTION_RANGE = 3.75;
 
     private static ScanStats lastScanStats = new ScanStats();
 
@@ -84,7 +84,7 @@ public class PlacementScanner {
             }
         }
         for (BlockPos failed : UsedPlacementTracker.getFailedPositions()) {
-            if (failed.distSqr(pos) < 0.01) {
+            if (failed.distSqr(pos) < 1.1) {
                 return true;
             }
         }
@@ -117,6 +117,25 @@ public class PlacementScanner {
         if (eyePos.distanceTo(frameCenter) > MAX_INTERACTION_RANGE) {
             stats.rejectedRange++;
             return Optional.empty();
+        }
+
+        BlockHitResult ray = mc.level.clip(new ClipContext(
+                eyePos,
+                hitPos,
+                ClipContext.Block.COLLIDER,
+                ClipContext.Fluid.NONE,
+                mc.player
+        ));
+
+        if (!ray.getBlockPos().equals(blockPos)) {
+            stats.rejectedRaycast++;
+            return Optional.empty();
+        }
+
+        if (ray.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK
+                && !ray.getDirection().equals(face)
+                && !ray.getDirection().equals(face.getOpposite())) {
+            // Keep practical tolerance: as long as ray hits the support block, allow minor face mismatch.
         }
 
         if (UsedPlacementTracker.isUsed(framePos)
