@@ -2,7 +2,6 @@ package com.smelted.client.bot;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.world.entity.decoration.ItemFrame;
 import net.minecraft.world.phys.Vec3;
 
@@ -14,14 +13,28 @@ public class MapBotController {
 
     private static BlockPos origin;
     private static BlockPos currentWaypoint;
-    private static BlockPos lastWallBlock;
-    private static Direction lastFace;
+    private static PlacementTarget lastPlacementTarget;
 
     private static int step = 1;
     private static int cooldownTicks = 0;
     private static int insertAttempts = 0;
+    private static int frameWaitAttempts = 0;
+    private static int successCount = 0;
+    private static int skippedCount = 0;
 
     private static final int STEP_DISTANCE = 20;
+    private static final int MAX_INSERT_ATTEMPTS = 12;
+    private static final int MAX_FRAME_WAIT_ATTEMPTS = 8;
+    private static final int COOLDOWN_AFTER_GOTO = 12;
+    private static final int COOLDOWN_AFTER_PATH_REACHED = 12;
+    private static final int COOLDOWN_AFTER_PLACE = 12;
+    private static final int COOLDOWN_WAIT_FRAME_RETRY = 6;
+    private static final int COOLDOWN_AFTER_MAP_SELECT = 6;
+    private static final int COOLDOWN_REAIM = 4;
+    private static final int COOLDOWN_BEFORE_INSERT = 4;
+    private static final int COOLDOWN_USE_RELEASE = 1;
+    private static final int COOLDOWN_AFTER_RELEASE = 8;
+    private static final int COOLDOWN_SKIP = 10;
 
     public static void start() {
         Minecraft mc = Minecraft.getInstance();
@@ -36,6 +49,9 @@ public class MapBotController {
         origin = mc.player.blockPosition();
         step = 1;
         insertAttempts = 0;
+        frameWaitAttempts = 0;
+        successCount = 0;
+        skippedCount = 0;
 
         status = "Started map insert test";
         state = MapBotState.NEXT_POINT;
@@ -70,7 +86,7 @@ public class MapBotController {
                         currentWaypoint.getZ()
                 );
 
-                cooldownTicks = 20;
+                cooldownTicks = COOLDOWN_AFTER_GOTO;
                 state = MapBotState.PATHING;
             }
 
@@ -85,7 +101,7 @@ public class MapBotController {
                     BaritoneHelper.stop();
 
                     status = "Close enough, placing";
-                    cooldownTicks = 30;
+                    cooldownTicks = COOLDOWN_AFTER_PATH_REACHED;
                     state = MapBotState.PLACING_FRAME;
                 }
             }
@@ -102,36 +118,59 @@ public class MapBotController {
                 var target = PlacementScanner.findNearbyTarget(mc);
 
                 if (target.isEmpty()) {
-                    status = "No wall found, moving on";
-                    cooldownTicks = 20;
+                    status = "No reachable wall/ground target, moving on";
+                    skippedCount++;
+                    cooldownTicks = COOLDOWN_SKIP;
                     state = MapBotState.NEXT_POINT;
                     return;
                 }
 
-                lastWallBlock = target.get().blockPos();
-                lastFace = target.get().face();
+                lastPlacementTarget = target.get();
 
-                RotationHelper.lookAt(mc, lastWallBlock);
+                RotationHelper.lookAtVec(
+                        mc,
+                        Vec3.atCenterOf(lastPlacementTarget.blockPos())
+                                .relative(lastPlacementTarget.face(), 0.5)
+                );
 
-                InteractionHelper.placeItemFrame(mc, lastWallBlock, lastFace);
+                InteractionHelper.placeItemFrame(
+                        mc,
+                        lastPlacementTarget.blockPos(),
+                        lastPlacementTarget.face()
+                );
 
                 status = "Placed frame, testing map insert";
                 insertAttempts = 0;
-                cooldownTicks = 40;
+                frameWaitAttempts = 0;
+                cooldownTicks = COOLDOWN_AFTER_PLACE;
                 state = MapBotState.WAITING_FOR_FRAME;
             }
 
             case WAITING_FOR_FRAME -> {
+                if (lastPlacementTarget == null) {
+                    status = "No placement target selected; skipping";
+                    state = MapBotState.NEXT_POINT;
+                    return;
+                }
+
                 ItemFrame frame = InteractionHelper.findNearbyFrame(
                         mc,
-                        lastWallBlock,
-                        lastFace
+                        lastPlacementTarget.blockPos(),
+                        lastPlacementTarget.face()
                 );
 
                 if (frame == null) {
-                    insertAttempts++;
-                    status = "Waiting for frame entity... " + insertAttempts;
-                    cooldownTicks = 10;
+                    frameWaitAttempts++;
+                    if (frameWaitAttempts >= MAX_FRAME_WAIT_ATTEMPTS) {
+                        UsedPlacementTracker.markFailed(lastPlacementTarget.framePos());
+                        skippedCount++;
+                        status = withStats("Frame failed to appear, skipping target");
+                        cooldownTicks = COOLDOWN_SKIP;
+                        state = MapBotState.NEXT_POINT;
+                        return;
+                    }
+                    status = withStats("Waiting for frame entity... " + frameWaitAttempts);
+                    cooldownTicks = COOLDOWN_WAIT_FRAME_RETRY;
                     return;
                 }
 
@@ -146,70 +185,92 @@ public class MapBotController {
                 RotationHelper.lookAtVec(mc, frame.getBoundingBox().getCenter());
 
                 status = "Map selected, waiting before insert";
-                cooldownTicks = 12;
+                cooldownTicks = COOLDOWN_AFTER_MAP_SELECT;
                 state = MapBotState.WAITING_TO_INSERT_MAP;
             }
 
             case WAITING_TO_INSERT_MAP -> {
+                if (lastPlacementTarget == null) {
+                    status = "No placement target selected; skipping";
+                    state = MapBotState.NEXT_POINT;
+                    return;
+                }
+
                 ItemFrame frame = InteractionHelper.findNearbyFrame(
                         mc,
-                        lastWallBlock,
-                        lastFace
+                        lastPlacementTarget.blockPos(),
+                        lastPlacementTarget.face()
                 );
 
                 if (frame == null) {
                     status = "Frame disappeared, retrying";
-                    cooldownTicks = 10;
+                    cooldownTicks = COOLDOWN_WAIT_FRAME_RETRY;
                     state = MapBotState.WAITING_FOR_FRAME;
                     return;
                 }
 
                 RotationHelper.lookAtVec(mc, frame.getBoundingBox().getCenter());
 
-                status = "Aiming at frame before insert";
-                cooldownTicks = 8;
+                status = withStats("Aiming at frame before insert");
+                cooldownTicks = COOLDOWN_BEFORE_INSERT;
                 state = MapBotState.INSERTING_MAP_TEST;
             }
 
             case INSERTING_MAP_TEST -> {
+                if (lastPlacementTarget == null) {
+                    status = "No placement target selected; skipping";
+                    state = MapBotState.NEXT_POINT;
+                    return;
+                }
+
                 ItemFrame frame = InteractionHelper.findNearbyFrame(
                         mc,
-                        lastWallBlock,
-                        lastFace
+                        lastPlacementTarget.blockPos(),
+                        lastPlacementTarget.face()
                 );
 
                 if (frame == null) {
-                    insertAttempts++;
-                    status = "Waiting for frame entity... " + insertAttempts;
-                    cooldownTicks = 10;
+                    frameWaitAttempts++;
+                    if (frameWaitAttempts >= MAX_FRAME_WAIT_ATTEMPTS) {
+                        UsedPlacementTracker.markFailed(lastPlacementTarget.framePos());
+                        skippedCount++;
+                        status = withStats("Frame disappeared too long, skipping target");
+                        cooldownTicks = COOLDOWN_SKIP;
+                        state = MapBotState.NEXT_POINT;
+                        return;
+                    }
+                    status = withStats("Waiting for frame entity... " + frameWaitAttempts);
+                    cooldownTicks = COOLDOWN_WAIT_FRAME_RETRY;
                     state = MapBotState.WAITING_FOR_FRAME;
                     return;
                 }
 
                 if (!frame.getItem().isEmpty()) {
-                    status = "SUCCESS: map inserted, moving to next point";
+                    successCount++;
+                    status = withStats("SUCCESS: map inserted, moving to next point");
+                    UsedPlacementTracker.markUsed(frame.blockPosition());
 
                     insertAttempts = 0;
-                    cooldownTicks = 20;
+                    frameWaitAttempts = 0;
+                    cooldownTicks = COOLDOWN_SKIP;
                     state = MapBotState.NEXT_POINT;
                     return;
                 }
 
-                double frameDistance = mc.player.getEyePosition()
-                        .distanceTo(frame.getBoundingBox().getCenter());
-
-                if (frameDistance > 3.0) {
-                    status = "Too far from frame: " + String.format("%.2f", frameDistance);
-                    cooldownTicks = 10;
-                    state = MapBotState.MOVING_CLOSER_TO_FRAME;
+                if (insertAttempts >= MAX_INSERT_ATTEMPTS) {
+                    UsedPlacementTracker.markFailed(lastPlacementTarget.framePos());
+                    skippedCount++;
+                    status = withStats("Insert failed too many times; skipping target");
+                    cooldownTicks = COOLDOWN_SKIP;
+                    state = MapBotState.NEXT_POINT;
                     return;
                 }
 
                 RotationHelper.lookAtVec(mc, frame.getBoundingBox().getCenter());
 
                 if (!InteractionHelper.isCrosshairOnFrame(mc, frame)) {
-                    status = "Crosshair still not on frame";
-                    cooldownTicks = 5;
+                    status = withStats("Crosshair not on frame, re-aiming");
+                    cooldownTicks = COOLDOWN_REAIM;
                     state = MapBotState.WAITING_TO_INSERT_MAP;
                     return;
                 }
@@ -217,20 +278,30 @@ public class MapBotController {
                 InteractionHelper.pressUseKey(mc);
                 insertAttempts++;
 
-                status = "Pressed real use key attempt " + insertAttempts;
+                status = withStats("Pressed use key attempt " + insertAttempts);
 
-                cooldownTicks = 2;
+                cooldownTicks = COOLDOWN_USE_RELEASE;
                 state = MapBotState.RELEASING_USE_KEY;
             }
 
             case RELEASING_USE_KEY -> {
                 InteractionHelper.releaseUseKey(mc);
 
-                status = "Released use key, checking frame";
-                cooldownTicks = 20;
+                status = withStats("Released use key, checking frame contents");
+                cooldownTicks = COOLDOWN_AFTER_RELEASE;
                 state = MapBotState.WAITING_TO_INSERT_MAP;
             }
         }
+    }
+
+    private static String withStats(String message) {
+        return "[" + state + "] " + message
+                + " | insert=" + insertAttempts
+                + "/" + MAX_INSERT_ATTEMPTS
+                + " frameWait=" + frameWaitAttempts
+                + "/" + MAX_FRAME_WAIT_ATTEMPTS
+                + " success=" + successCount
+                + " skipped=" + skippedCount;
     }
 
     public static String getStatus() {
