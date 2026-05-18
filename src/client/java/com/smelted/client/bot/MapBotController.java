@@ -12,11 +12,9 @@ public class MapBotController {
     private static MapBotState state = MapBotState.STOPPED;
     private static String status = "Stopped";
 
-    private static BlockPos origin;
     private static BlockPos currentWaypoint;
     private static PlacementTarget lastPlacementTarget;
 
-    private static int step = 1;
     private static int cooldownTicks = 0;
     private static int insertAttempts = 0;
     private static int frameWaitAttempts = 0;
@@ -58,8 +56,6 @@ public class MapBotController {
         }
 
         running = true;
-        origin = mc.player.blockPosition();
-        step = 1;
         insertAttempts = 0;
         frameWaitAttempts = 0;
         successCount = 0;
