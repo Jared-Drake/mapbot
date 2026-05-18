@@ -3,6 +3,7 @@ package com.smelted.client.bot;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.decoration.ItemFrame;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
 public class MapBotController {
@@ -37,9 +38,11 @@ public class MapBotController {
     private static final int COOLDOWN_AFTER_RELEASE = 8;
     private static final int COOLDOWN_SKIP = 10;
     private static final int MAX_TARGET_ATTEMPTS_PER_WAYPOINT = 3;
-    private static final int STUCK_TIMEOUT_TICKS = 300;
-    private static final double STUCK_MOVE_THRESHOLD = 1.0;
-    private static final double WAYPOINT_XZ_REACHED_DISTANCE = 6.0;
+    private static final int STUCK_TIMEOUT_TICKS = 100;
+    private static final double STUCK_MOVE_THRESHOLD = 0.3;
+    private static final double WAYPOINT_XZ_REACHED_DISTANCE = 3.0;
+
+    private static int targetAttemptsAtWaypoint = 0;
 
     private static int targetAttemptsAtWaypoint = 0;
 
@@ -86,12 +89,12 @@ public class MapBotController {
         switch (state) {
 
             case NEXT_POINT -> {
-                BlockPos playerPos = mc.player.blockPosition();
-                int waypointX = playerPos.getX() + STEP_DISTANCE;
-                int waypointZ = playerPos.getZ() + STEP_DISTANCE;
-                int waypointY = playerPos.getY();
+                int waypointX = origin.getX() + (step * STEP_DISTANCE);
+                int waypointZ = origin.getZ();
+                int waypointY = resolveSurfaceWaypointY(mc, waypointX, waypointZ);
                 currentWaypoint = new BlockPos(waypointX, waypointY, waypointZ);
                 targetAttemptsAtWaypoint = 0;
+                step++;
                 resetPathingStuckTimer();
 
                 status = "Pathing to " + currentWaypoint.toShortString();
@@ -119,7 +122,7 @@ public class MapBotController {
                 double dz = mc.player.getZ() - currentWaypoint.getZ();
                 double horizontalDistance = Math.sqrt((dx * dx) + (dz * dz));
 
-                status = "Pathing... xz=" + Math.round(horizontalDistance) + " stuck=" + pathingStuckTicks + "/" + STUCK_TIMEOUT_TICKS;
+                status = "Pathing... " + Math.round(horizontalDistance) + " blocks away (XZ)";
 
                 if (pathingStuckTicks >= STUCK_TIMEOUT_TICKS) {
                     BaritoneHelper.stop();
@@ -151,7 +154,7 @@ public class MapBotController {
                     return;
                 }
 
-                var target = PlacementScanner.findNearbyTarget(mc, mc.player.blockPosition());
+                var target = PlacementScanner.findNearbyTarget(mc, currentWaypoint);
 
                 if (target.isEmpty()) {
                     status = withStats("No target near waypoint, moving on | " + PlacementScanner.getLastScanDebugSummary());
@@ -373,6 +376,30 @@ public class MapBotController {
     private static void resetPathingStuckTimer() {
         pathingStartPosition = null;
         pathingStuckTicks = 0;
+    }
+
+
+    private static int resolveSurfaceWaypointY(Minecraft mc, int x, int z) {
+        if (mc.level == null || mc.player == null) {
+            return origin != null ? origin.getY() : 0;
+        }
+
+        BlockPos columnPos = new BlockPos(x, mc.player.blockPosition().getY(), z);
+        if (!mc.level.hasChunkAt(columnPos)) {
+            return mc.player.blockPosition().getY();
+        }
+
+        int motionBlockingY = mc.level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+        if (motionBlockingY > mc.level.getMinY()) {
+            return motionBlockingY;
+        }
+
+        int worldSurfaceY = mc.level.getHeight(Heightmap.Types.WORLD_SURFACE, x, z);
+        if (worldSurfaceY > mc.level.getMinY()) {
+            return worldSurfaceY;
+        }
+
+        return mc.player.blockPosition().getY();
     }
 
     private static boolean tryAnotherTargetAtWaypoint(String reason) {
