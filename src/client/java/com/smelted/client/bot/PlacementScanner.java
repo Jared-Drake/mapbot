@@ -86,7 +86,7 @@ public class PlacementScanner {
             }
         }
         for (BlockPos failed : UsedPlacementTracker.getFailedPositions()) {
-            if (failed.distSqr(pos) < 0.01) {
+            if (failed.distSqr(pos) < 1.1) {
                 return true;
             }
         }

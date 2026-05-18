@@ -46,6 +46,8 @@ public class MapBotController {
 
     private static int targetAttemptsAtWaypoint = 0;
 
+    private static int targetAttemptsAtWaypoint = 0;
+
     public static void start() {
         Minecraft mc = Minecraft.getInstance();
 
@@ -92,7 +94,7 @@ public class MapBotController {
 
             case NEXT_POINT -> {
                 int waypointX = origin.getX() + (step * STEP_DISTANCE);
-                int waypointZ = origin.getZ() + (step * STEP_DISTANCE);
+                int waypointZ = origin.getZ();
                 int waypointY = resolveSurfaceWaypointY(mc, waypointX, waypointZ);
                 currentWaypoint = new BlockPos(waypointX, waypointY, waypointZ);
                 targetAttemptsAtWaypoint = 0;
@@ -156,7 +158,7 @@ public class MapBotController {
                     return;
                 }
 
-                var target = PlacementScanner.findNearbyTarget(mc, mc.player.blockPosition());
+                var target = PlacementScanner.findNearbyTarget(mc, currentWaypoint);
 
                 if (target.isEmpty()) {
                     status = withStats("No target near waypoint, moving on | " + PlacementScanner.getLastScanDebugSummary());
