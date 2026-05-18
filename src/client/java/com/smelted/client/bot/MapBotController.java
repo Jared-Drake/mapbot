@@ -2,7 +2,6 @@ package com.smelted.client.bot;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.world.entity.decoration.ItemFrame;
 import net.minecraft.world.phys.Vec3;
 
@@ -14,14 +13,14 @@ public class MapBotController {
 
     private static BlockPos origin;
     private static BlockPos currentWaypoint;
-    private static BlockPos lastWallBlock;
-    private static Direction lastFace;
+    private static PlacementTarget lastPlacementTarget;
 
     private static int step = 1;
     private static int cooldownTicks = 0;
     private static int insertAttempts = 0;
 
     private static final int STEP_DISTANCE = 20;
+    private static final int MAX_INSERT_ATTEMPTS = 12;
 
     public static void start() {
         Minecraft mc = Minecraft.getInstance();
@@ -102,18 +101,25 @@ public class MapBotController {
                 var target = PlacementScanner.findNearbyTarget(mc);
 
                 if (target.isEmpty()) {
-                    status = "No wall found, moving on";
+                    status = "No reachable wall/ground target, moving on";
                     cooldownTicks = 20;
                     state = MapBotState.NEXT_POINT;
                     return;
                 }
 
-                lastWallBlock = target.get().blockPos();
-                lastFace = target.get().face();
+                lastPlacementTarget = target.get();
 
-                RotationHelper.lookAt(mc, lastWallBlock);
+                RotationHelper.lookAtVec(
+                        mc,
+                        Vec3.atCenterOf(lastPlacementTarget.blockPos())
+                                .relative(lastPlacementTarget.face(), 0.5)
+                );
 
-                InteractionHelper.placeItemFrame(mc, lastWallBlock, lastFace);
+                InteractionHelper.placeItemFrame(
+                        mc,
+                        lastPlacementTarget.blockPos(),
+                        lastPlacementTarget.face()
+                );
 
                 status = "Placed frame, testing map insert";
                 insertAttempts = 0;
@@ -122,10 +128,16 @@ public class MapBotController {
             }
 
             case WAITING_FOR_FRAME -> {
+                if (lastPlacementTarget == null) {
+                    status = "No placement target selected; skipping";
+                    state = MapBotState.NEXT_POINT;
+                    return;
+                }
+
                 ItemFrame frame = InteractionHelper.findNearbyFrame(
                         mc,
-                        lastWallBlock,
-                        lastFace
+                        lastPlacementTarget.blockPos(),
+                        lastPlacementTarget.face()
                 );
 
                 if (frame == null) {
@@ -151,10 +163,16 @@ public class MapBotController {
             }
 
             case WAITING_TO_INSERT_MAP -> {
+                if (lastPlacementTarget == null) {
+                    status = "No placement target selected; skipping";
+                    state = MapBotState.NEXT_POINT;
+                    return;
+                }
+
                 ItemFrame frame = InteractionHelper.findNearbyFrame(
                         mc,
-                        lastWallBlock,
-                        lastFace
+                        lastPlacementTarget.blockPos(),
+                        lastPlacementTarget.face()
                 );
 
                 if (frame == null) {
@@ -172,10 +190,16 @@ public class MapBotController {
             }
 
             case INSERTING_MAP_TEST -> {
+                if (lastPlacementTarget == null) {
+                    status = "No placement target selected; skipping";
+                    state = MapBotState.NEXT_POINT;
+                    return;
+                }
+
                 ItemFrame frame = InteractionHelper.findNearbyFrame(
                         mc,
-                        lastWallBlock,
-                        lastFace
+                        lastPlacementTarget.blockPos(),
+                        lastPlacementTarget.face()
                 );
 
                 if (frame == null) {
@@ -188,6 +212,7 @@ public class MapBotController {
 
                 if (!frame.getItem().isEmpty()) {
                     status = "SUCCESS: map inserted, moving to next point";
+                    UsedPlacementTracker.markUsed(frame.blockPosition());
 
                     insertAttempts = 0;
                     cooldownTicks = 20;
@@ -195,20 +220,17 @@ public class MapBotController {
                     return;
                 }
 
-                double frameDistance = mc.player.getEyePosition()
-                        .distanceTo(frame.getBoundingBox().getCenter());
-
-                if (frameDistance > 3.0) {
-                    status = "Too far from frame: " + String.format("%.2f", frameDistance);
-                    cooldownTicks = 10;
-                    state = MapBotState.MOVING_CLOSER_TO_FRAME;
+                if (insertAttempts >= MAX_INSERT_ATTEMPTS) {
+                    status = "Insert failed too many times; skipping target";
+                    cooldownTicks = 20;
+                    state = MapBotState.NEXT_POINT;
                     return;
                 }
 
                 RotationHelper.lookAtVec(mc, frame.getBoundingBox().getCenter());
 
                 if (!InteractionHelper.isCrosshairOnFrame(mc, frame)) {
-                    status = "Crosshair still not on frame";
+                    status = "Crosshair not on frame, re-aiming";
                     cooldownTicks = 5;
                     state = MapBotState.WAITING_TO_INSERT_MAP;
                     return;
@@ -217,7 +239,7 @@ public class MapBotController {
                 InteractionHelper.pressUseKey(mc);
                 insertAttempts++;
 
-                status = "Pressed real use key attempt " + insertAttempts;
+                status = "Pressed use key attempt " + insertAttempts;
 
                 cooldownTicks = 2;
                 state = MapBotState.RELEASING_USE_KEY;
@@ -226,7 +248,7 @@ public class MapBotController {
             case RELEASING_USE_KEY -> {
                 InteractionHelper.releaseUseKey(mc);
 
-                status = "Released use key, checking frame";
+                status = "Released use key, checking frame contents";
                 cooldownTicks = 20;
                 state = MapBotState.WAITING_TO_INSERT_MAP;
             }
