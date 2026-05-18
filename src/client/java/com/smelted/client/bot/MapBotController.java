@@ -99,9 +99,9 @@ public class MapBotController {
 
                 status = "Pathing to " + currentWaypoint.toShortString();
 
+                // Keep pathing simple: let Baritone pick terrain Y naturally.
                 BaritoneHelper.goTo(
                         currentWaypoint.getX(),
-                        currentWaypoint.getY(),
                         currentWaypoint.getZ()
                 );
 
@@ -128,7 +128,7 @@ public class MapBotController {
                     BaritoneHelper.stop();
                     skippedCount++;
                     stuckSkips++;
-                    status = "Baritone stuck, skipping to next point";
+                    status = "Baritone stuck too long, skipping to next point";
                     cooldownTicks = COOLDOWN_SKIP;
                     resetPathingStuckTimer();
                     state = MapBotState.NEXT_POINT;
