@@ -3,10 +3,8 @@ package com.smelted.client.bot;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.SupportType;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.Optional;
@@ -114,7 +112,6 @@ public class PlacementScanner {
         }
 
         Vec3 eyePos = mc.player.getEyePosition();
-        Vec3 hitPos = Vec3.atCenterOf(blockPos).relative(face, 0.5);
         Vec3 frameCenter = Vec3.atCenterOf(framePos);
 
         if (eyePos.distanceTo(frameCenter) > MAX_INTERACTION_RANGE) {
