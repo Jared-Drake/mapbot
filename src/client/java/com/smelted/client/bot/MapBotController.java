@@ -156,7 +156,7 @@ public class MapBotController {
                 var target = PlacementScanner.findNearbyTarget(mc);
 
                 if (target.isEmpty()) {
-                    status = "No reachable wall/ground target, moving on";
+                    status = "No target, moving on | " + PlacementScanner.getLastScanDebugSummary();
                     skippedCount++;
                     cooldownTicks = COOLDOWN_SKIP;
                     state = MapBotState.NEXT_POINT;
