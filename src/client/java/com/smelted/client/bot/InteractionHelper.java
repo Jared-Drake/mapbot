@@ -108,7 +108,10 @@ public class InteractionHelper {
     public static void placeItemFrame(Minecraft mc, BlockPos blockPos, Direction face) {
         if (mc.gameMode == null || mc.player == null) return;
 
-        Vec3 hitVec = Vec3.atCenterOf(blockPos);
+        Vec3 center = Vec3.atCenterOf(blockPos);
+        Vec3 hitVec = face == Direction.UP
+                ? center.add(0.0, 0.5, 0.0)
+                : center.relative(face, 0.5);
 
         BlockHitResult hitResult = new BlockHitResult(
                 hitVec,
