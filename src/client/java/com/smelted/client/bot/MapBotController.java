@@ -24,6 +24,16 @@ public class MapBotController {
 
     private static final int STEP_DISTANCE = 20;
     private static final int MAX_INSERT_ATTEMPTS = 12;
+    private static final int COOLDOWN_AFTER_GOTO = 12;
+    private static final int COOLDOWN_AFTER_PATH_REACHED = 12;
+    private static final int COOLDOWN_AFTER_PLACE = 12;
+    private static final int COOLDOWN_WAIT_FRAME_RETRY = 6;
+    private static final int COOLDOWN_AFTER_MAP_SELECT = 6;
+    private static final int COOLDOWN_REAIM = 4;
+    private static final int COOLDOWN_BEFORE_INSERT = 4;
+    private static final int COOLDOWN_USE_RELEASE = 1;
+    private static final int COOLDOWN_AFTER_RELEASE = 8;
+    private static final int COOLDOWN_SKIP = 10;
 
     public static void start() {
         Minecraft mc = Minecraft.getInstance();
@@ -108,7 +118,8 @@ public class MapBotController {
 
                 if (target.isEmpty()) {
                     status = "No reachable wall/ground target, moving on";
-                    cooldownTicks = 20;
+                    skippedCount++;
+                    cooldownTicks = COOLDOWN_SKIP;
                     state = MapBotState.NEXT_POINT;
                     return;
                 }
@@ -149,7 +160,7 @@ public class MapBotController {
 
                 if (frame == null) {
                     frameWaitAttempts++;
-                    if (frameWaitAttempts >= MAX_FRAME_WAIT_ATTEMPTS) {
+                    if (frameWaitAttempts >= 8) {
                         UsedPlacementTracker.markFailed(lastPlacementTarget.framePos());
                         skippedCount++;
                         status = withStats("Frame failed to appear, skipping target");
@@ -219,7 +230,7 @@ public class MapBotController {
 
                 if (frame == null) {
                     frameWaitAttempts++;
-                    if (frameWaitAttempts >= MAX_FRAME_WAIT_ATTEMPTS) {
+                    if (frameWaitAttempts >= 8) {
                         UsedPlacementTracker.markFailed(lastPlacementTarget.framePos());
                         skippedCount++;
                         status = withStats("Frame disappeared too long, skipping target");
@@ -234,7 +245,8 @@ public class MapBotController {
                 }
 
                 if (!frame.getItem().isEmpty()) {
-                    status = "SUCCESS: map inserted, moving to next point";
+                    successCount++;
+                    status = withStats("SUCCESS: map inserted, moving to next point");
                     UsedPlacementTracker.markUsed(frame.blockPosition());
 
                     insertAttempts = 0;
@@ -245,8 +257,10 @@ public class MapBotController {
                 }
 
                 if (insertAttempts >= MAX_INSERT_ATTEMPTS) {
-                    status = "Insert failed too many times; skipping target";
-                    cooldownTicks = 20;
+                    UsedPlacementTracker.markFailed(lastPlacementTarget.framePos());
+                    skippedCount++;
+                    status = withStats("Insert failed too many times; skipping target");
+                    cooldownTicks = COOLDOWN_SKIP;
                     state = MapBotState.NEXT_POINT;
                     return;
                 }
@@ -254,8 +268,8 @@ public class MapBotController {
                 RotationHelper.lookAtVec(mc, frame.getBoundingBox().getCenter());
 
                 if (!InteractionHelper.isCrosshairOnFrame(mc, frame)) {
-                    status = "Crosshair not on frame, re-aiming";
-                    cooldownTicks = 5;
+                    status = withStats("Crosshair not on frame, re-aiming");
+                    cooldownTicks = COOLDOWN_REAIM;
                     state = MapBotState.WAITING_TO_INSERT_MAP;
                     return;
                 }
@@ -263,7 +277,7 @@ public class MapBotController {
                 InteractionHelper.pressUseKey(mc);
                 insertAttempts++;
 
-                status = "Pressed use key attempt " + insertAttempts;
+                status = withStats("Pressed use key attempt " + insertAttempts);
 
                 cooldownTicks = COOLDOWN_USE_RELEASE;
                 state = MapBotState.RELEASING_USE_KEY;
@@ -272,8 +286,8 @@ public class MapBotController {
             case RELEASING_USE_KEY -> {
                 InteractionHelper.releaseUseKey(mc);
 
-                status = "Released use key, checking frame contents";
-                cooldownTicks = 20;
+                status = withStats("Released use key, checking frame contents");
+                cooldownTicks = COOLDOWN_AFTER_RELEASE;
                 state = MapBotState.WAITING_TO_INSERT_MAP;
             }
         }
@@ -284,7 +298,7 @@ public class MapBotController {
                 + " | insert=" + insertAttempts
                 + "/" + MAX_INSERT_ATTEMPTS
                 + " frameWait=" + frameWaitAttempts
-                + "/" + MAX_FRAME_WAIT_ATTEMPTS
+                + "/" + 8
                 + " success=" + successCount
                 + " skipped=" + skippedCount;
     }
