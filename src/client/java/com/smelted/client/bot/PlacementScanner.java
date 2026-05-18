@@ -3,35 +3,35 @@ package com.smelted.client.bot;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.SupportType;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.Optional;
 
 public class PlacementScanner {
 
-    private static final int SCAN_RADIUS = 5;
-    private static final double MAX_INTERACTION_RANGE = 2.75;
+    private static final int SCAN_RADIUS = 7;
+    private static final int VERTICAL_SCAN_MIN = -3;
+    private static final int VERTICAL_SCAN_MAX = 3;
+    private static final double MAX_INTERACTION_RANGE = 4.5;
 
     private static ScanStats lastScanStats = new ScanStats();
 
-    public static Optional<PlacementTarget> findNearbyTarget(Minecraft mc) {
+    public static Optional<PlacementTarget> findNearbyTarget(Minecraft mc, BlockPos scanCenter) {
         if (mc.player == null || mc.level == null) {
             lastScanStats = new ScanStats();
             return Optional.empty();
         }
 
-        BlockPos playerPos = mc.player.blockPosition();
+        BlockPos playerPos = scanCenter != null ? scanCenter : mc.player.blockPosition();
 
         PlacementTarget bestTarget = null;
         double bestDistance = Double.MAX_VALUE;
         ScanStats stats = new ScanStats();
 
         for (int x = -SCAN_RADIUS; x <= SCAN_RADIUS; x++) {
-            for (int y = -2; y <= 2; y++) {
+            for (int y = VERTICAL_SCAN_MIN; y <= VERTICAL_SCAN_MAX; y++) {
                 for (int z = -SCAN_RADIUS; z <= SCAN_RADIUS; z++) {
 
                     BlockPos blockPos = playerPos.offset(x, y, z);
@@ -79,12 +79,12 @@ public class PlacementScanner {
 
     private static boolean tooCloseToUsed(BlockPos pos) {
         for (BlockPos used : UsedPlacementTracker.getUsedPositions()) {
-            if (used.distSqr(pos) < 4) {
+            if (used.distSqr(pos) < 1.5) {
                 return true;
             }
         }
         for (BlockPos failed : UsedPlacementTracker.getFailedPositions()) {
-            if (failed.distSqr(pos) < 2) {
+            if (failed.distSqr(pos) < 0.01) {
                 return true;
             }
         }
@@ -112,24 +112,10 @@ public class PlacementScanner {
         }
 
         Vec3 eyePos = mc.player.getEyePosition();
-        Vec3 hitPos = Vec3.atCenterOf(blockPos).relative(face, 0.5);
         Vec3 frameCenter = Vec3.atCenterOf(framePos);
 
         if (eyePos.distanceTo(frameCenter) > MAX_INTERACTION_RANGE) {
             stats.rejectedRange++;
-            return Optional.empty();
-        }
-
-        BlockHitResult ray = mc.level.clip(new ClipContext(
-                eyePos,
-                hitPos,
-                ClipContext.Block.COLLIDER,
-                ClipContext.Fluid.NONE,
-                mc.player
-        ));
-
-        if (!ray.getBlockPos().equals(blockPos)) {
-            stats.rejectedRaycast++;
             return Optional.empty();
         }
 
