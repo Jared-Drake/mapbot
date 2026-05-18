@@ -95,6 +95,7 @@ public class MapBotController {
                 currentWaypoint = new BlockPos(waypointX, waypointY, waypointZ);
                 targetAttemptsAtWaypoint = 0;
                 step++;
+                targetAttemptsAtWaypoint = 0;
                 resetPathingStuckTimer();
 
                 status = "Pathing to " + currentWaypoint.toShortString();
