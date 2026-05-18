@@ -15,7 +15,6 @@ public class PlacementScanner {
 
     private static final int SCAN_RADIUS = 5;
     private static final double MAX_INTERACTION_RANGE = 2.75;
-    private static final double MIN_DOT_TO_FACE = 0.1;
 
     public static Optional<PlacementTarget> findNearbyTarget(Minecraft mc) {
         if (mc.player == null || mc.level == null) {
@@ -40,15 +39,6 @@ public class PlacementScanner {
                         Optional<PlacementTarget> wallTarget =
                                 validateTarget(mc, blockPos, face);
                         if (wallTarget.isPresent()) {
-                            Vec3 toFace = Vec3.atCenterOf(wallTarget.get().blockPos())
-                                    .relative(wallTarget.get().face(), 0.5)
-                                    .subtract(mc.player.getEyePosition())
-                                    .normalize();
-                            Vec3 look = mc.player.getViewVector(1.0F);
-                            double facingScore = toFace.dot(look);
-                            if (facingScore < MIN_DOT_TO_FACE) {
-                                continue;
-                            }
                             double distance = mc.player.getEyePosition()
                                     .distanceTo(Vec3.atCenterOf(wallTarget.get().framePos()));
                             if (distance < bestDistance) {
@@ -61,15 +51,6 @@ public class PlacementScanner {
                     Optional<PlacementTarget> groundTarget =
                             validateTarget(mc, blockPos, Direction.UP);
                     if (groundTarget.isPresent()) {
-                        Vec3 toFace = Vec3.atCenterOf(groundTarget.get().blockPos())
-                                .relative(groundTarget.get().face(), 0.5)
-                                .subtract(mc.player.getEyePosition())
-                                .normalize();
-                        Vec3 look = mc.player.getViewVector(1.0F);
-                        double facingScore = toFace.dot(look);
-                        if (facingScore < MIN_DOT_TO_FACE) {
-                            continue;
-                        }
                         double distance = mc.player.getEyePosition()
                                 .distanceTo(Vec3.atCenterOf(groundTarget.get().framePos()));
                         if (distance < bestDistance) {
@@ -105,11 +86,6 @@ public class PlacementScanner {
             Direction face
     ) {
         BlockPos framePos = blockPos.relative(face);
-        BlockState supportState = mc.level.getBlockState(blockPos);
-
-        if (!isValidSupportFace(mc, blockPos, supportState, face)) {
-            return Optional.empty();
-        }
 
         if (!mc.level.getBlockState(framePos).isAir()) {
             return Optional.empty();
@@ -139,27 +115,10 @@ public class PlacementScanner {
             return Optional.empty();
         }
 
-        if (UsedPlacementTracker.isUsed(framePos)
-                || UsedPlacementTracker.isFailed(framePos)
-                || tooCloseToUsed(framePos)) {
+        if (UsedPlacementTracker.isUsed(framePos) || tooCloseToUsed(framePos)) {
             return Optional.empty();
         }
 
         return Optional.of(new PlacementTarget(blockPos, face));
-    }
-
-    private static boolean isValidSupportFace(
-            Minecraft mc,
-            BlockPos blockPos,
-            BlockState supportState,
-            Direction face
-    ) {
-        if (supportState.isAir()) return false;
-        if (!supportState.getFluidState().isEmpty()) return false;
-        if (supportState.canBeReplaced()) return false;
-        if (!supportState.getCollisionShape(mc.level, blockPos).isEmpty()) {
-            return supportState.isFaceSturdy(mc.level, blockPos, face, BlockBehaviour.BlockStateBase.SupportType.FULL);
-        }
-        return false;
     }
 }
