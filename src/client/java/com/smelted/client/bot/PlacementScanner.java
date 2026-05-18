@@ -3,6 +3,7 @@ package com.smelted.client.bot;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.Optional;
@@ -67,6 +68,11 @@ public class PlacementScanner {
     private static boolean tooCloseToUsed(BlockPos pos) {
         for (BlockPos used : UsedPlacementTracker.getUsedPositions()) {
             if (used.distSqr(pos) < 4) {
+                return true;
+            }
+        }
+        for (BlockPos failed : UsedPlacementTracker.getFailedPositions()) {
+            if (failed.distSqr(pos) < 2) {
                 return true;
             }
         }

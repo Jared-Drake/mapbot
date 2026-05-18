@@ -18,6 +18,9 @@ public class MapBotController {
     private static int step = 1;
     private static int cooldownTicks = 0;
     private static int insertAttempts = 0;
+    private static int frameWaitAttempts = 0;
+    private static int successCount = 0;
+    private static int skippedCount = 0;
 
     private static final int STEP_DISTANCE = 20;
     private static final int MAX_INSERT_ATTEMPTS = 12;
@@ -35,6 +38,9 @@ public class MapBotController {
         origin = mc.player.blockPosition();
         step = 1;
         insertAttempts = 0;
+        frameWaitAttempts = 0;
+        successCount = 0;
+        skippedCount = 0;
 
         status = "Started map insert test";
         state = MapBotState.NEXT_POINT;
@@ -69,7 +75,7 @@ public class MapBotController {
                         currentWaypoint.getZ()
                 );
 
-                cooldownTicks = 20;
+                cooldownTicks = COOLDOWN_AFTER_GOTO;
                 state = MapBotState.PATHING;
             }
 
@@ -84,7 +90,7 @@ public class MapBotController {
                     BaritoneHelper.stop();
 
                     status = "Close enough, placing";
-                    cooldownTicks = 30;
+                    cooldownTicks = COOLDOWN_AFTER_PATH_REACHED;
                     state = MapBotState.PLACING_FRAME;
                 }
             }
@@ -123,7 +129,8 @@ public class MapBotController {
 
                 status = "Placed frame, testing map insert";
                 insertAttempts = 0;
-                cooldownTicks = 40;
+                frameWaitAttempts = 0;
+                cooldownTicks = COOLDOWN_AFTER_PLACE;
                 state = MapBotState.WAITING_FOR_FRAME;
             }
 
@@ -141,9 +148,17 @@ public class MapBotController {
                 );
 
                 if (frame == null) {
-                    insertAttempts++;
-                    status = "Waiting for frame entity... " + insertAttempts;
-                    cooldownTicks = 10;
+                    frameWaitAttempts++;
+                    if (frameWaitAttempts >= MAX_FRAME_WAIT_ATTEMPTS) {
+                        UsedPlacementTracker.markFailed(lastPlacementTarget.framePos());
+                        skippedCount++;
+                        status = withStats("Frame failed to appear, skipping target");
+                        cooldownTicks = COOLDOWN_SKIP;
+                        state = MapBotState.NEXT_POINT;
+                        return;
+                    }
+                    status = withStats("Waiting for frame entity... " + frameWaitAttempts);
+                    cooldownTicks = COOLDOWN_WAIT_FRAME_RETRY;
                     return;
                 }
 
@@ -158,7 +173,7 @@ public class MapBotController {
                 RotationHelper.lookAtVec(mc, frame.getBoundingBox().getCenter());
 
                 status = "Map selected, waiting before insert";
-                cooldownTicks = 12;
+                cooldownTicks = COOLDOWN_AFTER_MAP_SELECT;
                 state = MapBotState.WAITING_TO_INSERT_MAP;
             }
 
@@ -177,15 +192,15 @@ public class MapBotController {
 
                 if (frame == null) {
                     status = "Frame disappeared, retrying";
-                    cooldownTicks = 10;
+                    cooldownTicks = COOLDOWN_WAIT_FRAME_RETRY;
                     state = MapBotState.WAITING_FOR_FRAME;
                     return;
                 }
 
                 RotationHelper.lookAtVec(mc, frame.getBoundingBox().getCenter());
 
-                status = "Aiming at frame before insert";
-                cooldownTicks = 8;
+                status = withStats("Aiming at frame before insert");
+                cooldownTicks = COOLDOWN_BEFORE_INSERT;
                 state = MapBotState.INSERTING_MAP_TEST;
             }
 
@@ -203,9 +218,17 @@ public class MapBotController {
                 );
 
                 if (frame == null) {
-                    insertAttempts++;
-                    status = "Waiting for frame entity... " + insertAttempts;
-                    cooldownTicks = 10;
+                    frameWaitAttempts++;
+                    if (frameWaitAttempts >= MAX_FRAME_WAIT_ATTEMPTS) {
+                        UsedPlacementTracker.markFailed(lastPlacementTarget.framePos());
+                        skippedCount++;
+                        status = withStats("Frame disappeared too long, skipping target");
+                        cooldownTicks = COOLDOWN_SKIP;
+                        state = MapBotState.NEXT_POINT;
+                        return;
+                    }
+                    status = withStats("Waiting for frame entity... " + frameWaitAttempts);
+                    cooldownTicks = COOLDOWN_WAIT_FRAME_RETRY;
                     state = MapBotState.WAITING_FOR_FRAME;
                     return;
                 }
@@ -215,7 +238,8 @@ public class MapBotController {
                     UsedPlacementTracker.markUsed(frame.blockPosition());
 
                     insertAttempts = 0;
-                    cooldownTicks = 20;
+                    frameWaitAttempts = 0;
+                    cooldownTicks = COOLDOWN_SKIP;
                     state = MapBotState.NEXT_POINT;
                     return;
                 }
@@ -241,7 +265,7 @@ public class MapBotController {
 
                 status = "Pressed use key attempt " + insertAttempts;
 
-                cooldownTicks = 2;
+                cooldownTicks = COOLDOWN_USE_RELEASE;
                 state = MapBotState.RELEASING_USE_KEY;
             }
 
@@ -253,6 +277,16 @@ public class MapBotController {
                 state = MapBotState.WAITING_TO_INSERT_MAP;
             }
         }
+    }
+
+    private static String withStats(String message) {
+        return "[" + state + "] " + message
+                + " | insert=" + insertAttempts
+                + "/" + MAX_INSERT_ATTEMPTS
+                + " frameWait=" + frameWaitAttempts
+                + "/" + MAX_FRAME_WAIT_ATTEMPTS
+                + " success=" + successCount
+                + " skipped=" + skippedCount;
     }
 
     public static String getStatus() {
